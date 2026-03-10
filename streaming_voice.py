@@ -2,14 +2,19 @@ import sys
 import threading
 import time
 import os
+
+# 🌟 核心防闪退机制 1：禁止底层 Tokenizer 的多进程 fork 行为。
+# 当 Mac 的 GUI 现成 (PyQt) 正在渲染时，任何背后的多进程 Fork 都会导致底层信号量 (Semaphore) 泄露和段错误崩坏。
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
 import numpy as np
 import sounddevice as sd
 import soundfile as sf
 import mlx_whisper
-from pynput import keyboard
 
 from PyQt6.QtWidgets import QApplication, QMainWindow, QTextEdit, QVBoxLayout, QWidget, QPushButton, QLabel
-from PyQt6.QtCore import Qt, pyqtSignal, QObject
+from PyQt6.QtCore import Qt, pyqtSignal, QObject, QTimer
+from PyQt6.QtGui import QKeySequence, QShortcut
 
 # --------- 配置区域 ---------
 MODEL = "mlx-community/whisper-small-mlx"
@@ -22,7 +27,6 @@ class Signals(QObject):
     update_text = pyqtSignal(str, bool)
     status_update = pyqtSignal(str, str)
     btn_update = pyqtSignal(str, bool)
-    hotkey_pressed = pyqtSignal()
 
 class VoiceInputApp(QMainWindow):
     def __init__(self):
@@ -42,7 +46,6 @@ class VoiceInputApp(QMainWindow):
         self.signals.update_text.connect(self.on_update_text)
         self.signals.status_update.connect(self.on_status_update)
         self.signals.btn_update.connect(self.on_btn_update)
-        self.signals.hotkey_pressed.connect(self.toggle_recording)
 
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
@@ -72,9 +75,10 @@ class VoiceInputApp(QMainWindow):
         self.temp_file = "stream_temp.wav"
         self.mlx_lock = threading.Lock() # 🌟 增加 GPU 硬件锁，防止 Metal 引擎并发崩溃
         
-        # 全局快捷键
-        self.hotkey_listener = keyboard.GlobalHotKeys({HOTKEY: self.on_hotkey})
-        self.hotkey_listener.start()
+        # 🌟 核心防闪退机制 2：彻底移除冲突的 pynput，改用 macOS 绝对安全的 Qt 内部快捷键
+        # 注意：快捷键需要在点击、激活该窗口时生效。
+        self.shortcut = QShortcut(QKeySequence("Ctrl+Alt+R"), self)
+        self.shortcut.activated.connect(self.toggle_recording)
         
         # 开启预热线程
         threading.Thread(target=self.warmup, daemon=True).start()
@@ -87,10 +91,6 @@ class VoiceInputApp(QMainWindow):
             self.signals.status_update.emit("✅ 预热完毕！请点击下方按钮或按快捷键开始", "green")
         except Exception as e:
             self.signals.status_update.emit("✅ 就绪 (无测试文件)", "green")
-            
-    def on_hotkey(self):
-        # 通过 Qt 信号将事件安全抛回主线程，从源头杜绝所有由于多线程引发的底层界面崩溃
-        self.signals.hotkey_pressed.emit()
 
     def toggle_recording(self):
         if not self.is_recording:
@@ -188,8 +188,6 @@ class VoiceInputApp(QMainWindow):
 
     def closeEvent(self, event):
         self.is_recording = False
-        if hasattr(self, 'hotkey_listener') and self.hotkey_listener:
-            self.hotkey_listener.stop()
         event.accept()
 
 if __name__ == "__main__":
