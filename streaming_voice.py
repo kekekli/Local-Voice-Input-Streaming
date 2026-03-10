@@ -60,8 +60,8 @@ class VoiceInputApp(QMainWindow):
 
         # ====== UI 构建 ====== 
         # 状态提示
-        self.status_label = QLabel("初始化中...")
-        self.status_label.setStyleSheet("font-size: 12px; color: gray;")
+        self.status_label = QLabel("✅ 初始化完毕，等待录制或导入")
+        self.status_label.setStyleSheet("font-size: 12px; color: green;")
         layout.addWidget(self.status_label, alignment=Qt.AlignmentFlag.AlignCenter)
 
         # 连续草稿本 (文本框)
@@ -105,18 +105,6 @@ class VoiceInputApp(QMainWindow):
         # 快捷键机制
         self.shortcut = QShortcut(QKeySequence("Ctrl+Alt+R"), self)
         self.shortcut.activated.connect(self.toggle_recording)
-        
-        # 开启预热
-        threading.Thread(target=self.warmup, daemon=True).start()
-
-    def warmup(self):
-        try:
-            self.signals.status_update.emit("⏳ 模型预热中...", "gray")
-            with self.mlx_lock:
-                mlx_whisper.transcribe("test.m4a", path_or_hf_repo=MODEL)
-            self.signals.status_update.emit("✅ 预热完毕！请点击录制或导入", "green")
-        except:
-            self.signals.status_update.emit("✅ 就绪 (无测试文件)", "green")
 
     # ---------------- 核心草稿本机制 ----------------
     def toggle_recording(self):
