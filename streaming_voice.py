@@ -163,8 +163,7 @@ class VoiceInputApp(QMainWindow):
             with self.mlx_lock:
                 result = mlx_whisper.transcribe(
                     self.temp_file, 
-                    path_or_hf_repo=MODEL,
-                    initial_prompt="你好，请问今天天气怎么样？好的，我们马上开始。"
+                    path_or_hf_repo=MODEL
                 )
             text = result.get('text', '').strip()
             if text:
@@ -226,8 +225,7 @@ class VoiceInputApp(QMainWindow):
             with self.mlx_lock:
                 result = mlx_whisper.transcribe(
                     file_path,
-                    path_or_hf_repo=MODEL,
-                    initial_prompt="各位领导、同事大家下午好。今天我们主要讨论一下接下来的项目进展，请大家各抒己见。"
+                    path_or_hf_repo=MODEL
                 )
             
             segments = result.get('segments', [])
