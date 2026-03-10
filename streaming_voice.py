@@ -164,7 +164,7 @@ class VoiceInputApp(QMainWindow):
                 result = mlx_whisper.transcribe(
                     self.temp_file, 
                     path_or_hf_repo=MODEL,
-                    initial_prompt="这是一段口语化的中文对话，请务必准确识别，并为我的断句补充上逗号、句号和问号等标点符号。"
+                    initial_prompt="你好，请问今天天气怎么样？好的，我们马上开始。"
                 )
             text = result.get('text', '').strip()
             if text:
@@ -227,7 +227,7 @@ class VoiceInputApp(QMainWindow):
                 result = mlx_whisper.transcribe(
                     file_path,
                     path_or_hf_repo=MODEL,
-                    initial_prompt="这是一场内容严谨且较长的会议或口述，请为我精准识别，并且保留完整严丝合缝的标点符号语境。"
+                    initial_prompt="各位领导、同事大家下午好。今天我们主要讨论一下接下来的项目进展，请大家各抒己见。"
                 )
             
             segments = result.get('segments', [])
