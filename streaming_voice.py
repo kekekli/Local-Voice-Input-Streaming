@@ -73,7 +73,7 @@ class VoiceInputApp(QMainWindow):
         # ====== 按钮布局 (主操作区域) ======
         btn_layout = QHBoxLayout()
         
-        self.record_btn = QPushButton("🔴 开始录制 (Option+R)")
+        self.record_btn = QPushButton("🔴 开始录制 (Command+R)")
         self.record_btn.setStyleSheet("font-size: 13px; padding: 8px; background-color: #e0e0e0; color: black; border-radius: 5px;")
         self.record_btn.clicked.connect(self.toggle_recording)
         btn_layout.addWidget(self.record_btn, stretch=2)
@@ -103,7 +103,7 @@ class VoiceInputApp(QMainWindow):
         self.committed_text = ""
         
         # 快捷键机制
-        self.shortcut = QShortcut(QKeySequence("Alt+R"), self)
+        self.shortcut = QShortcut(QKeySequence("Ctrl+R"), self)
         self.shortcut.activated.connect(self.toggle_recording)
 
     # ---------------- 核心草稿本机制 ----------------
@@ -141,7 +141,7 @@ class VoiceInputApp(QMainWindow):
             
         # 进行最后一次定版转写，并打上 final=True 盖章戳
         self.do_transcribe(final=True)
-        self.signals.btn_update.emit("🔴 继续下一段录制 (Option+R)", True)
+        self.signals.btn_update.emit("🔴 继续下一段录制 (Command+R)", True)
         self.signals.status_update.emit("✅ 单段录音落锤，已无缝追加并复制", "green")
         
     def record_loop(self):
