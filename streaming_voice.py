@@ -175,17 +175,20 @@ class VoiceInputApp(QMainWindow):
 
         with self.audio_lock:
             if not self.audio_data: return
-            audio_np = np.concatenate(self.audio_data, axis=0)
+            audio_np = np.concatenate(self.audio_data, axis=0).flatten().astype(np.float32)
         
         try:
             # 🔥 策略二：VAD 物理门禁
             if np.max(np.abs(audio_np)) < 0.005:
                 return
             
-            # 🌟 优化：直接传递内存数组给 mlx_whisper，跳过磁盘 WAV 写入进度，彻底避免文件死锁
+            # 🌟 修复：回归标准格式化的文件转录模式。
+            # 之前的内存数组驱动在 Metal 后端会导致严重的内存分发 Bug (1.1TB 申请异常)。
+            sf.write(self.temp_file, audio_np, SAMPLE_RATE)
+            
             with self.mlx_lock:
                 result = mlx_whisper.transcribe(
-                    audio_np, 
+                    self.temp_file, 
                     path_or_hf_repo=MODEL,
                     language="zh"
                 )
