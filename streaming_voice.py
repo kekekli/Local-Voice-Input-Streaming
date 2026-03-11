@@ -129,15 +129,20 @@ class VoiceInputApp(QMainWindow):
         
     def stop_recording(self):
         self.is_recording = False
-        self.signals.btn_update.emit("⏳ 处理末尾文字...", False)
-        self.signals.status_update.emit("✅ 单段录音完成", "green")
+        self.signals.btn_update.emit("⏳ 正在定稿 (在此期间可随意操作界面)...", False)
+        self.signals.status_update.emit("🔄 后台正在为您生成并拼接最终文本...", "blue")
         
+        # 【外科手术二：UI 物理隔离】将死锁计算流放进清道夫后台线程
+        threading.Thread(target=self._finalize_recording, daemon=True).start()
+        
+    def _finalize_recording(self):
         if self.recording_thread:
             self.recording_thread.join()
             
         # 进行最后一次定版转写，并打上 final=True 盖章戳
         self.do_transcribe(final=True)
         self.signals.btn_update.emit("🔴 继续下一段录制 (Ctrl+Alt+R)", True)
+        self.signals.status_update.emit("✅ 单段录音落锤，已无缝追加并复制", "green")
         
     def record_loop(self):
         def callback(indata, frames, time, status):
@@ -164,8 +169,7 @@ class VoiceInputApp(QMainWindow):
                 result = mlx_whisper.transcribe(
                     self.temp_file, 
                     path_or_hf_repo=MODEL,
-                    language="zh",
-                    initial_prompt="简体中文"
+                    language="zh"
                 )
             text = result.get('text', '').strip()
             if text:
@@ -228,8 +232,7 @@ class VoiceInputApp(QMainWindow):
                 result = mlx_whisper.transcribe(
                     file_path,
                     path_or_hf_repo=MODEL,
-                    language="zh",
-                    initial_prompt="简体中文"
+                    language="zh"
                 )
             
             segments = result.get('segments', [])
@@ -301,6 +304,15 @@ class VoiceInputApp(QMainWindow):
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
+    
+    # 【外科手术三：开天辟地主线程核物理隔离预热】
+    # 在所有 UI 和快捷键暴露给用户之前，强行在最纯净的主线程里用空音频把大模型喂进 GPU 显存。
+    # 彻底杜绝日后按下快捷键时与 IMKCF Mach 通道多线程抢夺碰撞！
+    try:
+        dummy_audio = np.zeros(16000, dtype=np.float32)
+        mlx_whisper.transcribe(dummy_audio, path_or_hf_repo=MODEL, language="zh")
+    except: pass
+
     window = VoiceInputApp()
     window.show()
     sys.exit(app.exec())
