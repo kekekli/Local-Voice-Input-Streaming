@@ -99,6 +99,7 @@ class VoiceInputApp(QMainWindow):
         self.transcribe_thread = None
         self.temp_file = "stream_temp.wav"
         self.mlx_lock = threading.Lock()
+        self.audio_lock = threading.Lock() # 🔥 音频数据读写锁
         
         # 🌟 “连续草稿本”的核心：记忆变量
         self.committed_text = ""
@@ -137,18 +138,26 @@ class VoiceInputApp(QMainWindow):
         threading.Thread(target=self._finalize_recording, daemon=True).start()
         
     def _finalize_recording(self):
-        if self.recording_thread:
-            self.recording_thread.join()
-            
-        # 进行最后一次定版转写，并打上 final=True 盖章戳
-        self.do_transcribe(final=True)
-        self.signals.btn_update.emit("🔴 继续下一段录制 (Command+R)", True)
-        self.signals.status_update.emit("✅ 单段录音落锤，已无缝追加并复制", "green")
+        print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] 🏁 开始定稿流程...")
+        try:
+            if self.recording_thread:
+                # 给 2 秒超时，防止音频驱动挂起导致死等
+                self.recording_thread.join(timeout=2.0)
+                
+            # 进行最后一次定版转写，并打上 final=True 盖章戳
+            self.do_transcribe(final=True)
+        except Exception as e:
+            print(f"❌ 定稿后台发生异常: {e}")
+        finally:
+            self.signals.btn_update.emit("🔴 继续下一段录制 (Command+R)", True)
+            self.signals.status_update.emit("✅ 单段录音落锤，已无缝追加并复制", "green")
+            print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] ✨ 全流程处理完毕，界面已恢复。")
         
     def record_loop(self):
         def callback(indata, frames, time, status):
             if status: pass
-            self.audio_data.append(indata.copy())
+            with self.audio_lock:
+                self.audio_data.append(indata.copy())
             
         with sd.InputStream(samplerate=SAMPLE_RATE, channels=CHANNELS, callback=callback):
             while self.is_recording:
@@ -161,28 +170,31 @@ class VoiceInputApp(QMainWindow):
                 self.do_transcribe(final=False)
                 
     def do_transcribe(self, final=False):
-        if not self.audio_data: return
+        # 只有在 final 时才打印耗时，避免实时更新时刷屏
+        if final: print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] 正在调用 GPU 模型...")
+
+        with self.audio_lock:
+            if not self.audio_data: return
+            audio_np = np.concatenate(self.audio_data, axis=0)
         
         try:
-            audio_np = np.concatenate(self.audio_data, axis=0)
-            
             # 🔥 策略二：VAD 物理门禁
-            # 将敏感度阈值放宽至 0.005，防止轻声细语被砍断，但依然能挡住绝对静音幻觉
             if np.max(np.abs(audio_np)) < 0.005:
                 return
-                
-            sf.write(self.temp_file, audio_np, SAMPLE_RATE)
             
+            # 🌟 优化：直接传递内存数组给 mlx_whisper，跳过磁盘 WAV 写入进度，彻底避免文件死锁
             with self.mlx_lock:
                 result = mlx_whisper.transcribe(
-                    self.temp_file, 
+                    audio_np, 
                     path_or_hf_repo=MODEL,
                     language="zh"
                 )
             text = result.get('text', '').strip()
             if text:
                 self.signals.update_text.emit(text, final)
+            if final: print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] 模型转录成功。")
         except Exception as e:
+            if final: print(f"⚠️ 转录过程失败: {e}")
             pass
 
     def on_update_text(self, text, final):
