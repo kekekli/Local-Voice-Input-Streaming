@@ -3,6 +3,7 @@ import threading
 import time
 import os
 import datetime
+import subprocess
 
 # 🌟 核心防闪退机制 1：禁止底层 Tokenizer 的多进程 fork 行为。
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
@@ -110,7 +111,7 @@ class VoiceInputApp(QMainWindow):
     def toggle_recording(self):
         if not self.is_recording:
             self.start_recording()
-            os.system("afplay /System/Library/Sounds/Ping.aiff")
+            subprocess.Popen(["afplay", "/System/Library/Sounds/Ping.aiff"])
         else:
             self.stop_recording()
 
@@ -161,18 +162,17 @@ class VoiceInputApp(QMainWindow):
                 
     def do_transcribe(self, final=False):
         if not self.audio_data: return
-        audio_np = np.concatenate(self.audio_data, axis=0)
-        
-        # 🔥 策略二：VAD 物理门禁 (Voice Activity Detection)
-        # 计算整段录音池中的最大音量（振幅）。如果小于 0.015，说明根本没有人在说话，只有细微的白噪音或底噪。
-        # 这里直接拦截并 return，根本不把这段废音频送去给 GPU 算！
-        # 也就是物理层面切断了 Whisper 模型产生诸如“字幕制作人Zither”静音幻觉的源头。
-        if np.max(np.abs(audio_np)) < 0.015:
-            return
-            
-        sf.write(self.temp_file, audio_np, SAMPLE_RATE)
         
         try:
+            audio_np = np.concatenate(self.audio_data, axis=0)
+            
+            # 🔥 策略二：VAD 物理门禁
+            # 将敏感度阈值放宽至 0.005，防止轻声细语被砍断，但依然能挡住绝对静音幻觉
+            if np.max(np.abs(audio_np)) < 0.005:
+                return
+                
+            sf.write(self.temp_file, audio_np, SAMPLE_RATE)
+            
             with self.mlx_lock:
                 result = mlx_whisper.transcribe(
                     self.temp_file, 
@@ -182,7 +182,7 @@ class VoiceInputApp(QMainWindow):
             text = result.get('text', '').strip()
             if text:
                 self.signals.update_text.emit(text, final)
-        except:
+        except Exception as e:
             pass
 
     def on_update_text(self, text, final):
@@ -205,7 +205,7 @@ class VoiceInputApp(QMainWindow):
             clipboard.setText(self.committed_text)
             self.text_area.append("\n\n✅ [已自动复制草稿本的全部内容进剪贴板]")
             scrollbar.setValue(scrollbar.maximum())
-            os.system("afplay /System/Library/Sounds/Glass.aiff")
+            subprocess.Popen(["afplay", "/System/Library/Sounds/Glass.aiff"])
 
     def clear_notebook(self):
         """提供一个显式清空按钮，只有主人允许时才能擦除"""
@@ -281,7 +281,7 @@ class VoiceInputApp(QMainWindow):
             doc.save(save_path)
             
             self.signals.export_status.emit(f"🎉 导出成功！Word 文件已保存在您的系统桌面。", "green")
-            os.system("afplay /System/Library/Sounds/Glass.aiff")
+            subprocess.Popen(["afplay", "/System/Library/Sounds/Glass.aiff"])
             
         except Exception as e:
             self.signals.export_status.emit(f"❌ 导出失败: {str(e)}", "red")
@@ -312,15 +312,6 @@ class VoiceInputApp(QMainWindow):
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
-    
-    # 【外科手术三：开天辟地主线程核物理隔离预热】
-    # 在所有 UI 和快捷键暴露给用户之前，强行在最纯净的主线程里用空音频把大模型喂进 GPU 显存。
-    # 彻底杜绝日后按下快捷键时与 IMKCF Mach 通道多线程抢夺碰撞！
-    try:
-        dummy_audio = np.zeros(16000, dtype=np.float32)
-        mlx_whisper.transcribe(dummy_audio, path_or_hf_repo=MODEL, language="zh")
-    except: pass
-
     window = VoiceInputApp()
     window.show()
     sys.exit(app.exec())
