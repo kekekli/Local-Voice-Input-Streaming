@@ -162,6 +162,14 @@ class VoiceInputApp(QMainWindow):
     def do_transcribe(self, final=False):
         if not self.audio_data: return
         audio_np = np.concatenate(self.audio_data, axis=0)
+        
+        # 🔥 策略二：VAD 物理门禁 (Voice Activity Detection)
+        # 计算整段录音池中的最大音量（振幅）。如果小于 0.015，说明根本没有人在说话，只有细微的白噪音或底噪。
+        # 这里直接拦截并 return，根本不把这段废音频送去给 GPU 算！
+        # 也就是物理层面切断了 Whisper 模型产生诸如“字幕制作人Zither”静音幻觉的源头。
+        if np.max(np.abs(audio_np)) < 0.015:
+            return
+            
         sf.write(self.temp_file, audio_np, SAMPLE_RATE)
         
         try:
