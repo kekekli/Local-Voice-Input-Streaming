@@ -3,7 +3,6 @@ import threading
 import time
 import os
 import datetime
-import json
 
 # 🌟 核心防闪退机制 1：禁止底层 Tokenizer 的多进程 fork 行为。
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
@@ -16,7 +15,7 @@ import docx
 
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QTextEdit, QVBoxLayout, QHBoxLayout, 
-    QWidget, QPushButton, QLabel, QFileDialog, QMessageBox, QDialog
+    QWidget, QPushButton, QLabel, QFileDialog, QMessageBox
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QObject, QTimer
 from PyQt6.QtGui import QKeySequence, QShortcut
@@ -35,87 +34,11 @@ class Signals(QObject):
     # 专门用于长音频导出任务的信号
     export_status = pyqtSignal(str, str)
 
-class DictDialog(QDialog):
-    def __init__(self, parent=None, vocab_dict=None):
-        super().__init__(parent)
-        self.setWindowTitle("私人专属纠错词库")
-        self.resize(400, 300)
-        self.vocab_dict = vocab_dict or {}
-        
-        layout = QVBoxLayout(self)
-        
-        help_label = QLabel("每行定义一个强行纠错规则，格式：错误词 = 正确词\n例如：\n按提重力 = Antigravity\n付能 = 赋能\n低层逻辑 = 底层逻辑")
-        help_label.setStyleSheet("color: #666; font-size: 13px;")
-        layout.addWidget(help_label)
-        
-        self.text_edit = QTextEdit()
-        self.text_edit.setStyleSheet("font-size: 14px; padding: 5px;")
-        text = "\n".join([f"{k} = {v}" for k, v in self.vocab_dict.items()])
-        self.text_edit.setText(text)
-        layout.addWidget(self.text_edit)
-        
-        btn_layout = QHBoxLayout()
-        self.import_btn = QPushButton("📂 导入词库配置 (.json)")
-        self.import_btn.clicked.connect(self.import_dict)
-        
-        self.export_btn = QPushButton("📤 导出备份 (.json)")
-        self.export_btn.clicked.connect(self.export_dict)
-        
-        self.save_btn = QPushButton("💾 保存并生效")
-        self.save_btn.setStyleSheet("background-color: #cce5ff; font-weight: bold;")
-        self.save_btn.clicked.connect(self.save_and_close)
-        
-        btn_layout.addWidget(self.import_btn)
-        btn_layout.addWidget(self.export_btn)
-        btn_layout.addWidget(self.save_btn)
-        
-        layout.addLayout(btn_layout)
-        
-    def save_and_close(self):
-        new_dict = {}
-        for line in self.text_edit.toPlainText().split('\n'):
-            line = line.strip()
-            if not line or '=' not in line: continue
-            k, v = line.split('=', 1)
-            if k.strip() and v.strip():
-                new_dict[k.strip()] = v.strip()
-        self.vocab_dict = new_dict
-        self.accept()
-        
-    def import_dict(self):
-        file_name, _ = QFileDialog.getOpenFileName(self, "导入词库配置", "", "JSON Files (*.json)")
-        if file_name:
-            try:
-                with open(file_name, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-                    text = "\n".join([f"{k} = {v}" for k, v in data.items()])
-                    self.text_edit.setText(text)
-                QMessageBox.information(self, "成功", "词库导入成功，请点击【保存并生效】应用更改。")
-            except Exception as e:
-                QMessageBox.critical(self, "错误", f"导入失败: {e}")
-
-    def export_dict(self):
-        file_name, _ = QFileDialog.getSaveFileName(self, "导出词库备份", "my_voice_dict.json", "JSON Files (*.json)")
-        if file_name:
-            try:
-                new_dict = {}
-                for line in self.text_edit.toPlainText().split('\n'):
-                    line = line.strip()
-                    if not line or '=' not in line: continue
-                    k, v = line.split('=', 1)
-                    if k.strip() and v.strip():
-                        new_dict[k.strip()] = v.strip()
-                with open(file_name, 'w', encoding='utf-8') as f:
-                    json.dump(new_dict, f, ensure_ascii=False, indent=2)
-                QMessageBox.information(self, "成功", "词库导出成功！")
-            except Exception as e:
-                QMessageBox.critical(self, "错误", f"导出失败: {e}")
-
 class VoiceInputApp(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("语音捕捉与转录中心")
-        self.resize(380, 280)
+        self.resize(360, 260)
         # 固定悬浮最前
         self.setWindowFlags(Qt.WindowType.WindowStaysOnTopHint)
         
@@ -130,10 +53,6 @@ class VoiceInputApp(QMainWindow):
         self.signals.status_update.connect(self.on_status_update)
         self.signals.btn_update.connect(self.on_btn_update)
         self.signals.export_status.connect(self.on_export_status)
-        
-        # ====== 词库加载 ======
-        self.dict_file = "voice_dict.json"
-        self.vocab_dict = self.load_dict()
 
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
@@ -166,20 +85,11 @@ class VoiceInputApp(QMainWindow):
         
         layout.addLayout(btn_layout)
 
-        # ====== 工具栏布局 ======
-        tools_layout = QHBoxLayout()
-        
-        self.import_btn = QPushButton("📁 音频转 Word")
+        # ====== 长图文导入功能 ======
+        self.import_btn = QPushButton("📁 导入音频并转为带时间戳 Word")
         self.import_btn.setStyleSheet("font-size: 13px; padding: 8px; background-color: #cce5ff; color: black; border-radius: 5px;")
         self.import_btn.clicked.connect(self.import_audio_action)
-        tools_layout.addWidget(self.import_btn)
-
-        self.dict_btn = QPushButton("⚙️ 自定义纠错词库")
-        self.dict_btn.setStyleSheet("font-size: 13px; padding: 8px; background-color: #f0f0f0; color: black; border-radius: 5px;")
-        self.dict_btn.clicked.connect(self.open_dict_settings)
-        tools_layout.addWidget(self.dict_btn)
-        
-        layout.addLayout(tools_layout)
+        layout.addWidget(self.import_btn)
 
         # ====== 内部状态管理 ======
         self.is_recording = False
@@ -195,34 +105,6 @@ class VoiceInputApp(QMainWindow):
         # 快捷键机制
         self.shortcut = QShortcut(QKeySequence("Ctrl+Alt+R"), self)
         self.shortcut.activated.connect(self.toggle_recording)
-
-    # ---------------- 专属词库逻辑 ----------------
-    def load_dict(self):
-        if os.path.exists(self.dict_file):
-            try:
-                with open(self.dict_file, 'r', encoding='utf-8') as f:
-                    return json.load(f)
-            except: pass
-        return {}
-
-    def save_dict(self):
-        try:
-            with open(self.dict_file, 'w', encoding='utf-8') as f:
-                json.dump(self.vocab_dict, f, ensure_ascii=False, indent=2)
-        except: pass
-
-    def open_dict_settings(self):
-        dialog = DictDialog(self, self.vocab_dict)
-        if dialog.exec() == QDialog.DialogCode.Accepted:
-            self.vocab_dict = dialog.vocab_dict
-            self.save_dict()
-            self.signals.status_update.emit(f"✅ 专属词库已更新 ({len(self.vocab_dict)} 个规则)", "green")
-            
-    def apply_dict(self, text):
-        """精准的后处理纠错引擎"""
-        for wrong, correct in self.vocab_dict.items():
-            text = text.replace(wrong, correct)
-        return text
 
     # ---------------- 核心草稿本机制 ----------------
     def toggle_recording(self):
@@ -284,10 +166,6 @@ class VoiceInputApp(QMainWindow):
                     path_or_hf_repo=MODEL
                 )
             text = result.get('text', '').strip()
-            
-            # 🔥 注入私人词库免疫体系
-            text = self.apply_dict(text)
-            
             if text:
                 self.signals.update_text.emit(text, final)
         except:
@@ -373,9 +251,6 @@ class VoiceInputApp(QMainWindow):
                 time_str = f"[{int(h):02d}:{int(m):02d}:{int(s):02d}]"
                 
                 text_content = seg.get('text', '').strip()
-                
-                # 🔥 注入私人词库免疫体系
-                text_content = self.apply_dict(text_content)
                 
                 p = doc.add_paragraph()
                 run_time = p.add_run(time_str + " ")
