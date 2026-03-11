@@ -163,7 +163,9 @@ class VoiceInputApp(QMainWindow):
             with self.mlx_lock:
                 result = mlx_whisper.transcribe(
                     self.temp_file, 
-                    path_or_hf_repo=MODEL
+                    path_or_hf_repo=MODEL,
+                    language="zh",
+                    initial_prompt="简体中文"
                 )
             text = result.get('text', '').strip()
             if text:
@@ -225,7 +227,9 @@ class VoiceInputApp(QMainWindow):
             with self.mlx_lock:
                 result = mlx_whisper.transcribe(
                     file_path,
-                    path_or_hf_repo=MODEL
+                    path_or_hf_repo=MODEL,
+                    language="zh",
+                    initial_prompt="简体中文"
                 )
             
             segments = result.get('segments', [])
